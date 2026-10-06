@@ -356,10 +356,33 @@ function parseJSON(t){
   if (a >= 0 && b > a) { try { return JSON.parse(t.slice(a, b+1)); } catch {} }
   throw {code:'invalid_json'};
 }
-async function askJSON(prompt, {image, signal} = {}){
+const FALLBACK = {gemini:['gemini-flash-latest','gemini-3.1-flash-lite','gemini-2.5-flash'], anthropic:['claude-sonnet-5-5','claude-haiku-4-5-20251001']};
+const wait = (ms, signal) => new Promise((res, rej) => { const t = setTimeout(res, ms); signal?.addEventListener('abort', () => { clearTimeout(t); rej({code:'cancelled'}); }, {once:true}); });
+let onRetry = () => {};
+async function askJSON(prompt, opts = {}){
   if (!cfg.key) throw {code:'no_key'};
-  const model = cfg.model || DEFAULT_MODEL[cfg.provider];
-  const b64 = image ? await fileToJpeg(image) : null;
+  const b64 = opts.image ? await fileToJpeg(opts.image) : null;
+  const first = cfg.model || DEFAULT_MODEL[cfg.provider];
+  const models = [first, ...FALLBACK[cfg.provider].filter(m => m !== first)];
+  let last;
+  for (let i = 0; i < models.length; i++) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try { return await callOnce(prompt, b64, models[i], opts.signal); }
+      catch (e) {
+        last = e;
+        if (!['upstream_error','rate_limited'].includes(e.code)) {
+          if (e.code === 'bad_model' && !cfg.model && i < models.length - 1) break;
+          throw e;
+        }
+        if (e.code === 'rate_limited' && attempt === 1) break;
+        onRetry(models[i], attempt);
+        await wait(attempt === 0 ? 2500 : 5000, opts.signal);
+      }
+    }
+  }
+  throw last;
+}
+async function callOnce(prompt, b64, model, signal){
   let res;
   try {
     if (cfg.provider === 'anthropic') {
@@ -382,6 +405,7 @@ async function askJSON(prompt, {image, signal} = {}){
   if (!res.ok) {
     const m = String(data?.error?.message || '');
     const s = res.status;
+    console.warn('AI error', s, m);
     throw {code: (s === 401 || s === 403 || /api key/i.test(m)) ? 'bad_key' : s === 404 || /model/i.test(m) && s === 400 ? 'bad_model' : s === 429 ? 'rate_limited' : s === 529 || s >= 500 ? 'upstream_error' : 'bad_request', detail:m};
   }
   const text = cfg.provider === 'anthropic'
@@ -490,7 +514,7 @@ const ERR = {
   bad_model:'That model name isn’t available. Clear the Model field in AI settings to use the default.',
   bad_request:'The AI service refused the request. Try a smaller photo or check AI settings.',
   network:'Couldn’t reach the AI service. Check your internet connection.',
-  upstream_error:'The AI service is busy. Try again in a moment.',
+  upstream_error:'The AI service is still busy after several tries. Wait a minute and try again, or pick another model in AI settings.',
   not_granted:'Claude access was not allowed for this page, so checks are off. Reload the page to be asked again.',
   sampling_disabled:'Analysis isn’t available for this account. You can still try the sample plate.',
   rate_limited:'The AI usage limit was reached. Wait a minute (free tiers have daily limits too), then try again.',
@@ -602,6 +626,7 @@ $('go').onclick = async () => {
   if (!usePhoto && !desc) { setMsg('Add a photo or describe your meal first.', 'err'); $('desc').focus(); return; }
   if (!cfg.key) { setMsg(ERR.no_key, 'err'); fillDlg(); dlg.showModal(); return; }
   busy(true);
+  onRetry = (m) => { $('go').textContent = 'AI busy, retrying…'; setMsg('The AI service is busy, retrying automatically' + (m ? ' (' + m + ')' : '') + '…', 'info'); };
   ctl = new AbortController();
   try {
     const lang = $('lang').value;
@@ -613,11 +638,11 @@ $('go').onclick = async () => {
     if (!list.length) { setMsg('No items could be identified. Try a clearer photo or add a short description.', 'err'); return; }
     if (!usePhoto) list.forEach(it => { it.x = null; it.y = null; });
     items = list; meta = {insight:str(r.insight), assumptions:str(r.assumptions)};
-    shownKcal = 0; renderAll(true);
+    setMsg(''); shownKcal = 0; renderAll(true);
     if (!usePhoto && !file) { $('photo').hidden = true; $('emptyMsg').hidden = false; $('stage').classList.add('empty'); }
     if (matchMedia('(max-width:920px)').matches) $('sumCard').scrollIntoView({block:'start'});
   } catch (e) {
-    if (e?.code !== 'cancelled') setMsg(ERR[e?.code] || 'The check was interrupted. Try again.', 'err');
+    if (e?.code !== 'cancelled') setMsg((ERR[e?.code] || 'The check was interrupted. Try again.') + (e?.detail ? ' Details: ' + e.detail.slice(0,160) : ''), 'err');
   } finally { busy(false); }
 };
 
