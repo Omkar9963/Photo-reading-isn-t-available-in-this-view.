@@ -1,0 +1,16 @@
+{
+  "name": "Thaali — Photo nutrition",
+  "short_name": "Thaali",
+  "description": "Snap a meal or drink and see calories, protein, carbs, fat, fibre and minerals.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#2B1A4B",
+  "theme_color": "#2B1A4B",
+  "icons": [
+    {"src": "icon-192.png", "sizes": "192x192", "type": "image/png"},
+    {"src": "icon-512.png", "sizes": "512x512", "type": "image/png"},
+    {"src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}
+  ]
+}

@@ -4,6 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Thaali — Snap your plate, see the nutrition</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#2B1A4B">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700;800&family=Figtree:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -51,6 +58,7 @@ button,input,select{font:inherit;color:inherit}
 .band::after{content:"";position:absolute;right:40px;top:30px;width:150px;height:150px;border-radius:50%;border:22px solid rgba(242,164,26,.18);pointer-events:none}
 .topbar{display:flex;justify-content:space-between;align-items:center;gap:12px;position:relative;z-index:1}
 .setbtn{display:inline-flex;align-items:center;gap:8px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.22);color:var(--plum-ink);border-radius:999px;padding:7px 14px;font-weight:700;font-size:14px;cursor:pointer}
+.topbar{flex-wrap:wrap}.topbar>.brand{margin-right:auto}.setbtn+.setbtn{margin-left:0}
 .setbtn:hover{background:rgba(255,255,255,.18)}
 .sdot{width:9px;height:9px;border-radius:50%;background:#f0b44a}
 .sdot.on{background:#59C47C}
@@ -220,7 +228,7 @@ footer{color:var(--muted);font-size:13px;padding:0 0 34px}
 <body>
 <header class="band">
   <div class="wrap">
-    <div class="topbar"><div class="brand"><span class="dot" aria-hidden="true"></span>Thaali<small>Photo nutrition</small></div><button class="setbtn" id="openSet"><span class="sdot" id="sdot"></span>AI settings</button></div>
+    <div class="topbar" style="gap:10px"><div class="brand"><span class="dot" aria-hidden="true"></span>Thaali<small>Photo nutrition</small></div><button class="setbtn" id="installBtn" hidden>Install app</button><button class="setbtn" id="openSet"><span class="sdot" id="sdot"></span>AI settings</button></div>
     <h1>Snap your plate. See what’s in it.</h1>
     <p class="lede">Take a photo of any meal. Thaali names each item, estimates the portion and shows calories, protein, carbs, fat, fibre and minerals in numbers.</p>
   </div>
@@ -469,7 +477,7 @@ st.addEventListener('drop', e => setFile(e.dataTransfer?.files?.[0]));
 document.addEventListener('paste', e => { const it = [...(e.clipboardData?.items || [])].find(i => i.type.startsWith('image/')); if (it) setFile(it.getAsFile()); });
 
 /* ---------- Prompt ---------- */
-const ITEM_SHAPE = `{"name": string, "localName": string, "portion": string, "grams": number, "kcal": number, "kcalLow": number, "kcalHigh": number, "protein": number, "carbs": number, "fat": number, "fibre": number, "iron": number, "calcium": number, "vitaminC": number, "sodium": number, "confidence": "high"|"medium"|"low", "x": number, "y": number}`;
+const ITEM_SHAPE = `{"name": string, "localName": string, "portion": string, "grams": number, "kcal": number, "kcalLow": number, "kcalHigh": number, "protein": number, "carbs": number, "fat": number, "fibre": number, "iron": number, "calcium": number, "vitaminC": number, "sodium": number, "confidence": "high"|"medium"|"low", "box": [number, number, number, number]}`;
 function nutritionRules(lang){
   return `Units: grams for grams/protein/carbs/fat/fibre; kcal for energy; mg for iron, calcium, vitaminC and sodium. All values are for the portion as served, not per 100 g.
 Use IFCT 2017 (NIN, Hyderabad) values for Indian foods where available, otherwise USDA FoodData Central. Account for cooking oil, ghee and salt typical of ${cook === 'home' ? 'home cooking' : cook === 'restaurant' ? 'restaurant cooking (more oil, ghee and salt than home)' : 'street food (more oil and salt, often deep fried)'}.
@@ -481,7 +489,7 @@ function platePrompt(lang, extra){
   return `${extra ? 'The person adds: "' + extra.slice(0,800) + '". Use this to identify items and quantities.\n' : ''}The attached photo shows a meal, most likely Indian. Identify each distinct food or drink item you can see (separate rice, each curry, chutney, curd, papad, salad, and every drink: juice, tea, coffee, lassi, soft drink, bottle or can). For drinks, use glass, cup, bottle or can size and any visible label to estimate volume and sugar. Do not invent items you cannot see.
 For each item estimate the portion from visual cues (plate size, bowl size, spoon, hand) and give its nutrition.
 ${nutritionRules(lang)}
-"x" and "y" are the centre of the item in the photo, as a percentage of image width and height (0 to 100).
+"box" is the item's bounding box as [ymin, xmin, ymax, xmax], each normalised to 0–1000 of the image height or width (top-left is 0,0). Every item, including each separate cup or glass, gets its own box.
 "confidence" reflects how sure you are about the item's identity and portion.
 "insight": one or two short, practical, friendly sentences in ${lang} about the balance of this meal (for example protein or fibre on the plate), with no medical claims and no judging the food as good or bad.
 "assumptions": one short sentence in ${lang} naming the main assumption, such as oil used in curries.
@@ -493,7 +501,7 @@ function textPrompt(desc, lang){
   return `Someone describes a meal or drinks they had: "${desc.slice(0,1500)}".
 List each distinct food or drink as a separate item, using the quantities given; if no quantity is given, assume one typical serving. Include drinks such as juice, tea, coffee, lassi, buttermilk, soft drinks or alcohol, counting added sugar and milk.
 ${nutritionRules(lang)}
-Set "x" and "y" to null.
+Set "box" to null.
 "confidence" is "high" when the quantity was given, otherwise "medium".
 "insight": one or two short, practical, friendly sentences in ${lang} about the balance of this meal, with no medical claims and no judging the food as good or bad.
 "assumptions": one short sentence in ${lang} naming the main assumption.
@@ -505,7 +513,7 @@ function addPrompt(text, lang){
   return `Give nutrition for this food item someone ate with their meal: "${text.slice(0,200)}".
 If no quantity is given, assume one typical serving.
 ${nutritionRules(lang)}
-Set "x" and "y" to null and "confidence" to "medium".
+Set "box" to null and "confidence" to "medium".
 Reply with only one JSON object of this shape: ${ITEM_SHAPE}`;
 }
 const ERR = {
@@ -534,10 +542,25 @@ function normItem(o){
   FIELDS.forEach(f => it[f] = num(o[f]));
   if (!it.kcalLow || it.kcalLow > it.kcal) it.kcalLow = Math.round(it.kcal * .85);
   if (!it.kcalHigh || it.kcalHigh < it.kcal) it.kcalHigh = Math.round(it.kcal * 1.2);
-  const x = parseFloat(o.x), y = parseFloat(o.y);
-  it.x = Number.isFinite(x) ? Math.min(96, Math.max(4, x)) : null;
-  it.y = Number.isFinite(y) ? Math.min(96, Math.max(4, y)) : null;
+  let x = NaN, y = NaN;
+  const bx = Array.isArray(o.box) ? o.box.map(Number) : null;
+  if (bx && bx.length === 4 && bx.every(Number.isFinite)) { y = (bx[0] + bx[2]) / 2; x = (bx[1] + bx[3]) / 2; it._scale = Math.max(...bx); }
+  else { x = parseFloat(o.x); y = parseFloat(o.y); it._scale = Math.max(x, y); }
+  it.x = Number.isFinite(x) ? x : null; it.y = Number.isFinite(y) ? y : null;
   return it;
+}
+
+/* ---------- Tag positions ---------- */
+function placeTags(list){
+  const pts = list.filter(it => it.x != null && it.y != null);
+  if (!pts.length) return;
+  const maxV = Math.max(...pts.map(it => it._scale || 0));
+  const div = maxV > 100 ? 10 : maxV <= 1.0001 ? 0.01 : 1;   // 0–1000, 0–1 or 0–100 scales
+  pts.forEach(it => { it.x = Math.min(92, Math.max(8, it.x / div)); it.y = Math.min(94, Math.max(6, it.y / div)); });
+  for (let i = 0; i < pts.length; i++) for (let j = 0; j < i; j++) {
+    const a = pts[i], b = pts[j];
+    if (Math.abs(a.x - b.x) < 14 && Math.abs(a.y - b.y) < 7) a.y = Math.min(94, b.y + 8);
+  }
 }
 
 /* ---------- Totals ---------- */
@@ -637,6 +660,7 @@ $('go').onclick = async () => {
     const list = (Array.isArray(r?.items) ? r.items : []).map(normItem).filter(Boolean);
     if (!list.length) { setMsg('No items could be identified. Try a clearer photo or add a short description.', 'err'); return; }
     if (!usePhoto) list.forEach(it => { it.x = null; it.y = null; });
+    else placeTags(list);
     items = list; meta = {insight:str(r.insight), assumptions:str(r.assumptions)};
     setMsg(''); shownKcal = 0; renderAll(true);
     if (!usePhoto && !file) { $('photo').hidden = true; $('emptyMsg').hidden = false; $('stage').classList.add('empty'); }
@@ -734,6 +758,19 @@ $('demo').onclick = () => {
   setMsg('This is a sample plate. Add your own photo to check a real meal.', 'info');
 };
 })();
+</script>
+<script>
+// Installable app: register the service worker and offer an Install button.
+if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+let deferredPrompt = null;
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferredPrompt = e; document.getElementById('installBtn').hidden = false; });
+document.getElementById('installBtn').addEventListener('click', async () => {
+  if (!deferredPrompt) return;
+  deferredPrompt.prompt();
+  await deferredPrompt.userChoice.catch(() => {});
+  deferredPrompt = null; document.getElementById('installBtn').hidden = true;
+});
+window.addEventListener('appinstalled', () => { document.getElementById('installBtn').hidden = true; });
 </script>
 </body>
 </html>
